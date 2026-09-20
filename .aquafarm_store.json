@@ -1,0 +1,120 @@
+{
+  "settings": null,
+  "pump": null,
+  "schedules": null,
+  "alerts": null,
+  "activity": null,
+  "lastSensors": {
+    "soilMoisture": 42,
+    "temperature": 28,
+    "humidity": 64,
+    "tankPercent": 75,
+    "sensorNode": "AF-01",
+    "recordedAt": "2026-09-20T05:26:08.998Z"
+  },
+  "updatedAt": "2026-09-20T05:27:08.904Z",
+  "aquafarm.settings.v1": {
+    "threshold": 35,
+    "units": "metric"
+  },
+  "lastPumpAction": {
+    "action": "STOP",
+    "mode": "Manual",
+    "fieldId": "A",
+    "durationMinutes": 1,
+    "waterLitres": 5,
+    "soilMoisture": 42.76889701349525,
+    "at": "2026-09-20T05:27:08.906Z"
+  },
+  "aquafarm.activity.v1": [
+    {
+      "id": "act-mu9djiss-3f85b",
+      "at": "2026-09-20T05:27:08.889Z",
+      "fieldId": "A",
+      "durationMin": 1,
+      "waterL": 5,
+      "mode": "Manual",
+      "status": "Stopped"
+    },
+    {
+      "id": "act-mu9djg69-xcous",
+      "at": "2026-09-20T08:30:00.000Z",
+      "fieldId": "A",
+      "durationMin": 20,
+      "waterL": 340,
+      "mode": "Automatic",
+      "status": "Completed"
+    },
+    {
+      "id": "act-mu9djg69-3e0mx",
+      "at": "2026-09-19T18:15:00.000Z",
+      "fieldId": "B",
+      "durationMin": 15,
+      "waterL": 260,
+      "mode": "Manual",
+      "status": "Completed"
+    },
+    {
+      "id": "act-mu9djg69-c2g3p",
+      "at": "2026-09-17T07:00:00.000Z",
+      "fieldId": "C",
+      "durationMin": 25,
+      "waterL": 420,
+      "mode": "Scheduled",
+      "status": "Completed"
+    }
+  ],
+  "aquafarm.alerts.v1": [
+    {
+      "id": "alert-mu9djiss-erfa7",
+      "severity": "info",
+      "title": "Irrigation started",
+      "text": "Pump turned ON for Field A in manual mode.",
+      "fieldId": "A",
+      "key": "pump-start-A",
+      "at": "2026-09-20T05:27:01.612Z",
+      "read": false
+    },
+    {
+      "id": "alert-mu9djg6f-tos03",
+      "severity": "critical",
+      "title": "Low Soil Moisture",
+      "text": "Field B (Tomato) moisture is reading 28%, below the configured 30% threshold.",
+      "fieldId": "B",
+      "key": "low-moisture-B",
+      "at": "2026-09-20T05:20:58.209Z",
+      "read": false
+    },
+    {
+      "id": "alert-mu9djg6f-a4ulr",
+      "severity": "success",
+      "title": "Irrigation Completed",
+      "text": "Field A irrigation completed successfully. 340 L used in 20 minutes.",
+      "fieldId": "A",
+      "key": "irrigation-completed-A",
+      "at": "2026-09-20T08:30:00.000Z",
+      "read": false
+    },
+    {
+      "id": "alert-mu9djg6f-rr7nb",
+      "severity": "info",
+      "title": "Sensor Network Online",
+      "text": "3 simulated sensor nodes are reporting normally across Field A, Field B and Field C.",
+      "fieldId": null,
+      "key": "sensor-online",
+      "at": "2026-09-20T05:14:58.209Z",
+      "read": true
+    }
+  ],
+  "aquafarm.pump.v1": {
+    "mode": "Manual",
+    "fieldId": "A"
+  },
+  "aquafarm.counters.v1": {
+    "sessionsToday": 6,
+    "waterSavedPercent": 18,
+    "previousWeekLitres": 8750,
+    "tankPercent": 75.9,
+    "waterUsedToday": 1244.9
+  }
+}

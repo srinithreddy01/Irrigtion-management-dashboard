@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 const path = require('path');
 
-const FILE = 'file://' + path.resolve('/home/user/irrigation-dashboard/index.html');
+const TARGET_URL = process.env.TEST_URL || 'http://localhost:3000';
 
 (async () => {
   const browser = await puppeteer.launch({ args: ['--no-sandbox', '--allow-file-access-from-files'] });
@@ -17,7 +17,7 @@ const FILE = 'file://' + path.resolve('/home/user/irrigation-dashboard/index.htm
   page.on('pageerror', e => pageErrors.push(String(e)));
   page.on('requestfailed', r => failedRequests.push(r.url().split('/').slice(-1)[0] + ' :: ' + (r.failure() && r.failure().errorText)));
 
-  await page.goto(FILE, { waitUntil: 'networkidle0', timeout: 60000 });
+  await page.goto(TARGET_URL, { waitUntil: 'networkidle0', timeout: 60000 });
   await new Promise(r => setTimeout(r, 2200));
 
   const read = () => page.evaluate(() => {
@@ -99,6 +99,6 @@ const FILE = 'file://' + path.resolve('/home/user/irrigation-dashboard/index.htm
   console.log('failedRequests:', failedRequests);
   console.log('warnings:', consoleWarnings.slice(0, 10));
 
-  await page.screenshot({ path: '/home/user/test/desktop-top.png' });
+  await page.screenshot({ path: path.join(__dirname, 'desktop-top.png') });
   await browser.close();
 })();

@@ -1800,6 +1800,51 @@ input[type="time"].is-invalid { border-color: var(--danger); background-color: #
   .tank__water { transition: none; }
 }
 
+/* ============================== 27. FARM DATA TABLES & DATABASE SECTION ============================== */
+.nav-tabs--custom {
+  border-bottom: 2px solid var(--border);
+  gap: var(--sp-2);
+}
+.nav-tabs--custom .nav-link {
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+  font-size: var(--fs-sm);
+  padding: 0.625rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  transition: all var(--transition-fast);
+}
+.nav-tabs--custom .nav-link:hover {
+  color: var(--green-700);
+  background: var(--green-050);
+}
+.nav-tabs--custom .nav-link.active {
+  color: var(--green-800);
+  background: var(--white);
+  border-color: var(--border) var(--border) var(--white);
+  border-bottom: 2px solid var(--green-600);
+  font-weight: var(--fw-semibold);
+}
+.nav-tabs--custom .count-chip {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.nav-tabs--custom .nav-link.active .count-chip {
+  background: var(--green-100);
+  color: var(--green-800);
+  border-color: var(--green-300);
+}
+
 @media print {
   .app-header, .mobile-actionbar, .toast-region, .hero__actions, .form-actions { display: none !important; }
   body { background: #fff; padding: 0; }

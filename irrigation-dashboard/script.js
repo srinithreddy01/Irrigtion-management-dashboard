@@ -150,14 +150,27 @@
     },
 
     write: function (key, value) {
-      if (!this.available) { return false; }
-      try {
-        window.localStorage.setItem(key, JSON.stringify(value));
-        return true;
-      } catch (error) {
-        toast("error", "Storage unavailable", "Your browser blocked local storage, so this change will not be remembered.");
-        return false;
+      var saved = false;
+      if (this.available) {
+        try {
+          window.localStorage.setItem(key, JSON.stringify(value));
+          saved = true;
+        } catch (error) {
+          /* Local storage may be full or blocked */
+        }
       }
+      try {
+        if (typeof window.fetch === "function") {
+          var payload = {};
+          payload[key] = value;
+          fetch("/api/state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }).catch(function () { /* network error fallback */ });
+        }
+      } catch (netErr) { /* ignore */ }
+      return saved;
     },
 
     remove: function (key) {
@@ -721,6 +734,19 @@
     renderStorageInfo();
     updateChartsLive();
     track("pump.start", { fieldId: field.id, mode: state.pump.mode, automatic: !!settings.automatic });
+
+    if (typeof window.fetch === "function") {
+      fetch("/api/pump", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "START",
+          mode: state.pump.mode,
+          fieldId: field.id,
+          soilMoisture: field.moisture
+        })
+      }).catch(function () {});
+    }
   }
 
   function stopPump(reason) {
@@ -763,6 +789,21 @@
         elapsedMinutes + (elapsedMinutes === 1 ? " minute." : " minutes."));
     } else {
       toast("warning", "Irrigation Stopped", "Pump has been turned OFF. " + formatVolume(waterUsed) + " " + unitLabel("volume") + " used in this session.");
+    }
+
+    if (typeof window.fetch === "function") {
+      fetch("/api/pump", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "STOP",
+          mode: state.pump.mode,
+          fieldId: field.id,
+          durationMinutes: elapsedMinutes,
+          waterLitres: waterUsed,
+          soilMoisture: field.moisture
+        })
+      }).catch(function () {});
     }
 
     renderPump();
@@ -1747,12 +1788,45 @@
     renderWeather();
     renderSensors();
     renderRecommendation();
+    if (typeof telemetryLogCache !== "undefined" && typeof renderFarmDataTables === "function") {
+      var nodeIndex = (state.simulation.updates % 3);
+      var fieldObj = state.fields[nodeIndex] || state.fields[0];
+      telemetryLogCache.unshift({
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        node: "AF-0" + (nodeIndex + 1),
+        field: fieldObj.name,
+        moisture: round(fieldObj.moisture, 1),
+        temp: round(sensors.temperature, 1),
+        humidity: round(sensors.humidity, 1),
+        tank: round(sensors.tankPercent, 1),
+        wind: round(sensors.windSpeed, 1),
+        status: fieldObj.moisture < (state.settings.threshold || 30) ? "Dry" : (fieldObj.moisture > fieldObj.band[1] ? "Wet" : "Optimal")
+      });
+      if (telemetryLogCache.length > 25) { telemetryLogCache.pop(); }
+      renderFarmDataTables();
+    }
     evaluateRules();
     updateChartsLive();
     updateLastUpdated();
     renderSimFacts();
     persistCounters();
     track("sensor.tick", { updates: state.simulation.updates, manual: !!manual });
+
+    if (state.simulation.updates % 3 === 0 && typeof window.fetch === "function") {
+      fetch("/api/telemetry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          soilMoisture: sensors.soilMoisture,
+          temperature: sensors.temperature,
+          humidity: sensors.humidity,
+          tankPercent: sensors.tankPercent,
+          waterUsedToday: sensors.waterUsedToday,
+          windSpeed: sensors.windSpeed,
+          sensorNode: "AF-01"
+        })
+      }).catch(function () {});
+    }
   }
 
   function startSimulation() {
@@ -2035,6 +2109,234 @@
     schedule.status = "Completed";
     persistSchedules();
     renderSchedules();
+  }
+
+  /* ==========================================================================
+     19B. FARM DATA TABLES & SUPABASE ARCHITECTURE
+     ========================================================================== */
+  var telemetryLogCache = [
+    { time: new Date(Date.now() - 300000).toLocaleTimeString(), node: "AF-01", field: "Field A", moisture: 42, temp: 28, humidity: 64, tank: 76, wind: 12, status: "Optimal" },
+    { time: new Date(Date.now() - 200000).toLocaleTimeString(), node: "AF-02", field: "Field B", moisture: 28, temp: 29, humidity: 62, tank: 76, wind: 11, status: "Dry" },
+    { time: new Date(Date.now() - 100000).toLocaleTimeString(), node: "AF-03", field: "Field C", moisture: 51, temp: 27, humidity: 66, tank: 75, wind: 13, status: "Optimal" },
+    { time: new Date().toLocaleTimeString(), node: "AF-01", field: "Field A", moisture: 43, temp: 28, humidity: 64, tank: 75, wind: 12, status: "Optimal" }
+  ];
+
+  var supabaseCatalogCache = [
+    {
+      name: "aquafarm_state",
+      type: "Application State",
+      columns: "key (TEXT PK), value (JSONB), updated_at (TIMESTAMPTZ)",
+      purpose: "Unified app settings, pump state, user preferences, and counters",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    },
+    {
+      name: "sensor_readings",
+      type: "Timeseries Telemetry",
+      columns: "id (BIGSERIAL PK), sensor_node (TEXT), soil_moisture (NUMERIC), temperature (NUMERIC), humidity (NUMERIC), tank_percent (NUMERIC), created_at (TIMESTAMPTZ)",
+      purpose: "Real-time historical soil moisture, temperature, and environmental logs",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    },
+    {
+      name: "pump_logs",
+      type: "Execution Logs",
+      columns: "id (BIGSERIAL PK), action (TEXT), mode (TEXT), field_id (TEXT), duration_minutes (NUMERIC), water_litres (NUMERIC), created_at (TIMESTAMPTZ)",
+      purpose: "Audit trail of all irrigation starts, stops, and litres consumed",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    },
+    {
+      name: "farm_alerts",
+      type: "Alerts & Notifications",
+      columns: "id (TEXT PK), title (TEXT), message (TEXT), severity (TEXT), is_read (BOOLEAN), created_at (TIMESTAMPTZ)",
+      purpose: "Moisture warnings, tank shortage notices, and pump notifications",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    },
+    {
+      name: "farm_fields",
+      type: "Field Zones Catalog",
+      columns: "id (TEXT PK), name (TEXT), crop (TEXT), stage (TEXT), area_acres (NUMERIC), target_min (NUMERIC), target_max (NUMERIC), irrigation_method (TEXT)",
+      purpose: "Field definitions, acreage, crop profiles, and moisture targets",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    },
+    {
+      name: "irrigation_schedules",
+      type: "Scheduled Tasks",
+      columns: "id (TEXT PK), field_id (TEXT), scheduled_date (DATE), scheduled_time (TIME), duration_minutes (INT), mode (TEXT), status (TEXT)",
+      purpose: "Automated schedules planned by the farm operator",
+      rls: "Enabled (Public Read/Write)",
+      status: "Ready"
+    }
+  ];
+
+  function renderSensorDataTable() {
+    var tbody = $("#sensorDataTableBody");
+    if (!tbody) { return; }
+
+    var nodeFilter = $("#filterSensorNode") ? $("#filterSensorNode").value : "";
+    var statusFilter = $("#filterSensorStatus") ? $("#filterSensorStatus").value : "";
+
+    var filtered = telemetryLogCache.filter(function (item) {
+      if (nodeFilter && item.node !== nodeFilter) { return false; }
+      if (statusFilter && item.status !== statusFilter) { return false; }
+      return true;
+    });
+
+    setText("#telemetryBadgeCount", String(telemetryLogCache.length));
+
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted p-3">No telemetry records match the selected filter.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(function (row) {
+      var statusBadge = row.status === "Optimal"
+        ? '<span class="status-tag status-tag--optimal"><span class="status-tag__dot"></span>Optimal</span>'
+        : (row.status === "Dry"
+          ? '<span class="status-tag status-tag--warning"><span class="status-tag__dot"></span>Dry</span>'
+          : '<span class="status-tag status-tag--info"><span class="status-tag__dot"></span>Wet</span>');
+
+      return '<tr>' +
+        '<td class="data-table__date">' + escapeHtml(row.time) + '</td>' +
+        '<td><strong>' + escapeHtml(row.node) + '</strong> <span class="text-muted small">(' + escapeHtml(row.field || "Farm") + ')</span></td>' +
+        '<td class="data-table__num">' + round(row.moisture, 1) + '%</td>' +
+        '<td class="data-table__num">' + round(row.temp, 1) + '°C</td>' +
+        '<td class="data-table__num">' + round(row.humidity, 1) + '%</td>' +
+        '<td class="data-table__num">' + round(row.tank, 1) + '%</td>' +
+        '<td class="data-table__num">' + round(row.wind, 1) + ' km/h</td>' +
+        '<td>' + statusBadge + '</td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  function renderFieldsComparisonTable() {
+    var tbody = $("#fieldsComparisonTableBody");
+    if (!tbody) { return; }
+
+    var methods = { A: "Canal / Flood", B: "Drip Irrigation", C: "Sprinkler" };
+
+    tbody.innerHTML = state.fields.map(function (field) {
+      var isDry = field.moisture < (state.settings.threshold || 30);
+      var conditionBadge = isDry
+        ? '<span class="status-tag status-tag--warning"><span class="status-tag__dot"></span>Needs Water</span>'
+        : (field.moisture > field.band[1]
+          ? '<span class="status-tag status-tag--info"><span class="status-tag__dot"></span>Moist</span>'
+          : '<span class="status-tag status-tag--optimal"><span class="status-tag__dot"></span>Optimal</span>');
+
+      var isPumpingThis = state.pump.on && state.pump.fieldId === field.id;
+
+      return '<tr>' +
+        '<td><div class="data-table__field"><i class="fa-solid fa-leaf"></i><strong>' + escapeHtml(field.name) + '</strong></div></td>' +
+        '<td>' + escapeHtml(field.crop) + '</td>' +
+        '<td>' + escapeHtml(field.stage) + '</td>' +
+        '<td class="data-table__num">' + field.area + ' acres</td>' +
+        '<td class="data-table__num"><strong>' + round(field.moisture, 1) + '%</strong></td>' +
+        '<td class="data-table__num text-muted">' + field.band[0] + '% - ' + field.band[1] + '%</td>' +
+        '<td>' + (methods[field.id] || "Drip") + '</td>' +
+        '<td><code>' + escapeHtml(field.sensor) + '</code></td>' +
+        '<td>' + conditionBadge + '</td>' +
+        '<td>' +
+          '<button class="btn btn--' + (isPumpingThis ? 'warning' : 'primary') + ' btn--sm" type="button" data-table-water="' + field.id + '">' +
+            (isPumpingThis ? '<i class="fa-solid fa-pause"></i> Stop' : '<i class="fa-solid fa-play"></i> Water') +
+          '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  function renderSchedulesDataTable() {
+    var tbody = $("#schedulesDataTableBody");
+    var empty = $("#schedulesTableEmpty");
+    if (!tbody) { return; }
+
+    setText("#scheduleBadgeCount", String(state.schedules.length));
+
+    if (!state.schedules.length) {
+      tbody.innerHTML = "";
+      if (empty) { empty.hidden = false; }
+      return;
+    }
+    if (empty) { empty.hidden = true; }
+
+    tbody.innerHTML = state.schedules.map(function (item) {
+      var f = fieldById(item.fieldId);
+      var fieldLabel = f ? f.name : ("Field " + item.fieldId);
+      var waterEst = (item.durationMin * 16) + " L";
+      var d = new Date(item.at);
+      var dateStr = isNaN(d.getTime()) ? item.at : d.toLocaleDateString();
+      var timeStr = isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      return '<tr>' +
+        '<td><code>' + escapeHtml(item.id.slice(0, 8)) + '</code></td>' +
+        '<td><strong>' + escapeHtml(fieldLabel) + '</strong></td>' +
+        '<td class="data-table__date">' + escapeHtml(dateStr) + '</td>' +
+        '<td class="data-table__num">' + escapeHtml(timeStr) + '</td>' +
+        '<td class="data-table__num">' + item.durationMin + ' min</td>' +
+        '<td class="data-table__num">' + waterEst + '</td>' +
+        '<td><span class="badge-status is-tone-neutral">' + escapeHtml(item.mode) + '</span></td>' +
+        '<td>' + (item.status === "Completed" ? '<span class="badge-status is-tone-success">Completed</span>' : '<span class="badge-status is-tone-info">Scheduled</span>') + '</td>' +
+        '<td>' +
+          '<button class="btn btn--ghost btn--sm text-danger" type="button" data-table-cancel-schedule="' + item.id + '" title="Cancel task">' +
+            '<i class="fa-solid fa-trash-can"></i>' +
+          '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+  }
+
+  function renderDatabaseCatalogTable() {
+    var tbody = $("#databaseCatalogTableBody");
+    if (!tbody) { return; }
+
+    tbody.innerHTML = supabaseCatalogCache.map(function (table) {
+      return '<tr>' +
+        '<td><code><strong>' + escapeHtml(table.name) + '</strong></code></td>' +
+        '<td><span class="badge-status is-tone-neutral">' + escapeHtml(table.type) + '</span></td>' +
+        '<td><small class="font-monospace text-muted">' + escapeHtml(table.columns) + '</small></td>' +
+        '<td>' + escapeHtml(table.purpose) + '</td>' +
+        '<td><span class="status-tag status-tag--optimal"><span class="status-tag__dot"></span>' + escapeHtml(table.rls) + '</span></td>' +
+        '<td><span class="status-tag status-tag--optimal"><span class="status-tag__dot"></span>' + escapeHtml(table.status) + '</span></td>' +
+      '</tr>';
+    }).join("");
+
+    if (typeof window.fetch === "function") {
+      fetch("/api/status")
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var tag = $("#dbStatusTag");
+          var text = $("#dbStatusText");
+          if (!tag || !text) { return; }
+          if (data && data.connected) {
+            tag.className = "status-tag status-tag--optimal";
+            text.textContent = data.message || "Connected to Supabase (6 Tables Active)";
+          } else {
+            tag.className = "status-tag status-tag--info";
+            text.textContent = "Local Storage Fallback (Ready for Supabase credentials)";
+          }
+        })
+        .catch(function () {});
+
+      fetch("/api/schema.sql")
+        .then(function (res) { return res.text(); })
+        .then(function (sql) {
+          var code = $("#sqlPreviewCode");
+          if (code) { code.textContent = sql; }
+        })
+        .catch(function () {});
+    }
+  }
+
+  function renderFarmDataTables(showToast) {
+    renderSensorDataTable();
+    renderFieldsComparisonTable();
+    renderSchedulesDataTable();
+    renderDatabaseCatalogTable();
+    if (showToast) {
+      toast("info", "Tables Refreshed", "All data tables and database catalog statuses have been updated.");
+    }
   }
 
   /* ==========================================================================
@@ -2788,6 +3090,116 @@
         startSimulation();
       }
     });
+
+    // Tables section events
+    var refreshTablesBtn = $("#btnRefreshTables");
+    if (refreshTablesBtn) {
+      refreshTablesBtn.addEventListener("click", function () {
+        renderFarmDataTables(true);
+      });
+    }
+
+    var filterSensorNode = $("#filterSensorNode");
+    if (filterSensorNode) {
+      filterSensorNode.addEventListener("change", renderSensorDataTable);
+    }
+    var filterSensorStatus = $("#filterSensorStatus");
+    if (filterSensorStatus) {
+      filterSensorStatus.addEventListener("change", renderSensorDataTable);
+    }
+
+    function handleCreateTables(btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add("is-busy");
+      }
+      toast("info", "Executing Schema", "Provisioning 6 AquaFarm database tables in Supabase...");
+
+      fetch("/api/create-tables", { method: "POST" })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (btn) {
+            btn.disabled = false;
+            btn.classList.remove("is-busy");
+          }
+          if (data && data.success) {
+            toast("success", "Tables Provisioned!", "6 Supabase tables and RLS policies created successfully.");
+          } else {
+            toast("warning", "Database Schema Notice", data.message || "Tables script executed.");
+          }
+          renderDatabaseCatalogTable();
+        })
+        .catch(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.classList.remove("is-busy");
+          }
+          toast("info", "Schema Ready", "Schema DDL is ready. Copy SQL to run in Supabase SQL Editor if DATABASE_URL is not configured.");
+        });
+    }
+
+    var btnInitDbTables = $("#btnInitDbTables");
+    if (btnInitDbTables) {
+      btnInitDbTables.addEventListener("click", function () { handleCreateTables(btnInitDbTables); });
+    }
+
+    var btnExecuteCreateTables = $("#btnExecuteCreateTables");
+    if (btnExecuteCreateTables) {
+      btnExecuteCreateTables.addEventListener("click", function () { handleCreateTables(btnExecuteCreateTables); });
+    }
+
+    var btnCopySqlSchema = $("#btnCopySqlSchema");
+    if (btnCopySqlSchema) {
+      btnCopySqlSchema.addEventListener("click", function () {
+        fetch("/api/schema.sql")
+          .then(function (res) { return res.text(); })
+          .then(function (sql) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(sql).then(function () {
+                toast("success", "SQL Copied!", "Supabase table schema DDL copied to clipboard. Paste into Supabase SQL Editor.");
+              });
+            } else {
+              toast("info", "Schema URL", "Visit /api/schema.sql to view and copy the full DDL.");
+            }
+          })
+          .catch(function () {
+            toast("error", "Failed to fetch schema", "Could not load schema.sql.");
+          });
+      });
+    }
+
+    var fieldsComparisonTable = $("#fieldsComparisonTable");
+    if (fieldsComparisonTable) {
+      fieldsComparisonTable.addEventListener("click", function (e) {
+        var waterBtn = e.target.closest("button[data-table-water]");
+        if (waterBtn) {
+          var fieldId = waterBtn.getAttribute("data-table-water");
+          if (state.pump.on && state.pump.fieldId === fieldId) {
+            stopPump("stopped");
+            toast("info", "Irrigation Stopped", "Halted irrigation for Field " + fieldId);
+          } else {
+            state.pump.fieldId = fieldId;
+            startPump({ fieldId: fieldId, mode: "Manual", plannedMinutes: 15 });
+            toast("success", "Quick Water Started", "Pump turned ON for " + fieldById(fieldId).name);
+          }
+          renderPump();
+          renderFields();
+          renderFieldsComparisonTable();
+        }
+      });
+    }
+
+    var schedulesDataTable = $("#schedulesDataTable");
+    if (schedulesDataTable) {
+      schedulesDataTable.addEventListener("click", function (e) {
+        var cancelBtn = e.target.closest("button[data-table-cancel-schedule]");
+        if (cancelBtn) {
+          var id = cancelBtn.getAttribute("data-table-cancel-schedule");
+          cancelSchedule(id);
+          renderSchedulesDataTable();
+        }
+      });
+    }
   }
 
   /* ==========================================================================
@@ -2813,6 +3225,7 @@
     renderRecommendation();
     renderStorageInfo();
     renderSimFacts();
+    renderFarmDataTables();
     updateLastUpdated();
     evaluateRules();
   }
@@ -2870,6 +3283,34 @@
           "Your browser blocked local storage, so settings and schedules will not be remembered after a refresh.");
       }
       track("app.load", { updates: 0 });
+
+      // Hydrate state from cloud database / backend if available
+      if (typeof window.fetch === "function") {
+        fetch("/api/state")
+          .then(function (res) { return res.json(); })
+          .then(function (res) {
+            if (res && res.data && typeof res.data === "object") {
+              var d = res.data;
+              var dirty = false;
+              if (d[STORAGE_KEYS.settings]) {
+                state.settings = Object.assign({}, DEFAULT_SETTINGS, d[STORAGE_KEYS.settings]);
+                dirty = true;
+              }
+              if (Array.isArray(d[STORAGE_KEYS.schedules]) && d[STORAGE_KEYS.schedules].length) {
+                state.schedules = d[STORAGE_KEYS.schedules];
+                dirty = true;
+              }
+              if (Array.isArray(d[STORAGE_KEYS.activity]) && d[STORAGE_KEYS.activity].length) {
+                state.activity = d[STORAGE_KEYS.activity];
+                dirty = true;
+              }
+              if (dirty) {
+                renderAll();
+              }
+            }
+          })
+          .catch(function () {});
+      }
     }, 260);
   }
 

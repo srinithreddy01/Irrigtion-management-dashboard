@@ -88,6 +88,7 @@
         <ul class="main-nav__list" role="list">
           <li><a class="main-nav__link is-active" href="#overview" data-nav="overview"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i><span>Dashboard</span></a></li>
           <li><a class="main-nav__link" href="#fields" data-nav="fields"><i class="fa-solid fa-map" aria-hidden="true"></i><span>Fields</span></a></li>
+          <li><a class="main-nav__link" href="#tables" data-nav="tables"><i class="fa-solid fa-table-list" aria-hidden="true"></i><span>Data Tables</span></a></li>
           <li><a class="main-nav__link" href="#irrigation-control" data-nav="irrigation-control"><i class="fa-solid fa-faucet-drip" aria-hidden="true"></i><span>Irrigation</span></a></li>
           <li><a class="main-nav__link" href="#analytics" data-nav="analytics"><i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Analytics</span></a></li>
           <li><a class="main-nav__link" href="#alerts" data-nav="alerts"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>Alerts</span><span class="nav-badge" id="navAlertBadge" hidden>0</span></a></li>
@@ -598,6 +599,241 @@
         <h2 class="section-heading section-heading--spaced" id="cropsHeading">Crop Management</h2>
         <p class="section-intro">Moisture targets are compared with live simulated readings for every crop in the demonstration farm.</p>
         <div class="row g-3 g-lg-4" id="cropGrid" role="group" aria-labelledby="cropsHeading"></div>
+      </div>
+    </section>
+
+    <!-- ============================= FARM DATA TABLES & DATABASE ============================= -->
+    <section class="section" id="tables" aria-labelledby="tablesHeading">
+      <div class="container-fluid app-container">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+          <div>
+            <h2 class="section-heading mb-1" id="tablesHeading">Farm Data Tables &amp; Database</h2>
+            <p class="section-intro mb-0">Tabular views for live sensor telemetry logs, field zones, schedules, and Supabase cloud tables.</p>
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn--secondary btn--sm" type="button" id="btnRefreshTables">
+              <i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i><span>Refresh Tables</span>
+            </button>
+            <button class="btn btn--primary btn--sm" type="button" id="btnInitDbTables">
+              <i class="fa-solid fa-database" aria-hidden="true"></i><span>Create Tables in Database</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Table Switcher Tabs -->
+        <div class="tabs-nav-wrap mb-4">
+          <ul class="nav nav-tabs nav-tabs--custom" id="tableTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="tab-telemetry-btn" data-bs-toggle="tab" data-bs-target="#tab-telemetry" type="button" role="tab" aria-controls="tab-telemetry" aria-selected="true">
+                <i class="fa-solid fa-microchip" aria-hidden="true"></i><span>Sensor Telemetry</span>
+                <span class="count-chip ms-1" id="telemetryBadgeCount">4</span>
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-fields-btn" data-bs-toggle="tab" data-bs-target="#tab-fields" type="button" role="tab" aria-controls="tab-fields" aria-selected="false">
+                <i class="fa-solid fa-layer-group" aria-hidden="true"></i><span>Field Comparison</span>
+                <span class="count-chip ms-1">3</span>
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-schedules-btn" data-bs-toggle="tab" data-bs-target="#tab-schedules" type="button" role="tab" aria-controls="tab-schedules" aria-selected="false">
+                <i class="fa-solid fa-calendar-days" aria-hidden="true"></i><span>Schedules</span>
+                <span class="count-chip ms-1" id="scheduleBadgeCount">0</span>
+              </button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="tab-database-btn" data-bs-toggle="tab" data-bs-target="#tab-database" type="button" role="tab" aria-controls="tab-database" aria-selected="false">
+                <i class="fa-solid fa-server" aria-hidden="true"></i><span>Supabase Tables</span>
+                <span class="count-chip ms-1">6 Tables</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <div class="tab-content" id="tableTabsContent">
+          <!-- 1. Sensor Telemetry Table Tab -->
+          <div class="tab-pane fade show active" id="tab-telemetry" role="tabpanel" aria-labelledby="tab-telemetry-btn">
+            <article class="card card--fit">
+              <div class="card-head card-head--wrap">
+                <div>
+                  <h3 class="card-title">Live Sensor Telemetry Log</h3>
+                  <p class="card-subtitle">Real-time readings streaming from field nodes AF-01, AF-02, and AF-03</p>
+                </div>
+                <div class="filters" role="group" aria-label="Filter telemetry">
+                  <div class="filters__field">
+                    <label class="form-label form-label--sm" for="filterSensorNode">Node</label>
+                    <select class="form-select form-select--sm" id="filterSensorNode">
+                      <option value="">All Nodes</option>
+                      <option value="AF-01">AF-01 (Field A)</option>
+                      <option value="AF-02">AF-02 (Field B)</option>
+                      <option value="AF-03">AF-03 (Field C)</option>
+                    </select>
+                  </div>
+                  <div class="filters__field">
+                    <label class="form-label form-label--sm" for="filterSensorStatus">Status</label>
+                    <select class="form-select form-select--sm" id="filterSensorStatus">
+                      <option value="">All Statuses</option>
+                      <option value="Optimal">Optimal</option>
+                      <option value="Dry">Dry</option>
+                      <option value="Wet">Wet</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="sensorDataTable">
+                  <caption class="sr-only">Live telemetry readings by sensor node</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Time</th>
+                      <th scope="col">Sensor Node</th>
+                      <th scope="col">Soil Moisture</th>
+                      <th scope="col">Temperature</th>
+                      <th scope="col">Humidity</th>
+                      <th scope="col">Water Tank</th>
+                      <th scope="col">Wind Speed</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sensorDataTableBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <!-- 2. Field Comparison Table Tab -->
+          <div class="tab-pane fade" id="tab-fields" role="tabpanel" aria-labelledby="tab-fields-btn">
+            <article class="card card--fit">
+              <div class="card-head">
+                <div>
+                  <h3 class="card-title">Field Zones Comparison Table</h3>
+                  <p class="card-subtitle">Agronomic profile, target bands, and valve states across all farm sectors</p>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="fieldsComparisonTable">
+                  <caption class="sr-only">Field zones comparison table</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Field</th>
+                      <th scope="col">Assigned Crop</th>
+                      <th scope="col">Growth Stage</th>
+                      <th scope="col">Area</th>
+                      <th scope="col">Current Moisture</th>
+                      <th scope="col">Target Range</th>
+                      <th scope="col">Irrigation Method</th>
+                      <th scope="col">Node</th>
+                      <th scope="col">Condition</th>
+                      <th scope="col">Quick Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="fieldsComparisonTableBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <!-- 3. Irrigation Schedules Table Tab -->
+          <div class="tab-pane fade" id="tab-schedules" role="tabpanel" aria-labelledby="tab-schedules-btn">
+            <article class="card card--fit">
+              <div class="card-head card-head--wrap">
+                <div>
+                  <h3 class="card-title">Configured Irrigation Schedules Table</h3>
+                  <p class="card-subtitle">Planned irrigation events, duration, and water allocation per field</p>
+                </div>
+                <a href="#activity" class="btn btn--secondary btn--sm"><i class="fa-solid fa-plus" aria-hidden="true"></i> New Schedule</a>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="schedulesDataTable">
+                  <caption class="sr-only">Irrigation schedules data table</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Task ID</th>
+                      <th scope="col">Target Field</th>
+                      <th scope="col">Date</th>
+                      <th scope="col">Time</th>
+                      <th scope="col">Duration</th>
+                      <th scope="col">Est. Water</th>
+                      <th scope="col">Mode</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="schedulesDataTableBody"></tbody>
+                </table>
+              </div>
+              <div class="empty-state" id="schedulesTableEmpty" hidden>
+                <span class="empty-state__icon" aria-hidden="true"><i class="fa-regular fa-calendar-xmark"></i></span>
+                <h4 class="empty-state__title">No schedules created yet</h4>
+                <p class="empty-state__text">Create a schedule using the Irrigation Schedule form above to populate this table.</p>
+              </div>
+            </article>
+          </div>
+
+          <!-- 4. Supabase Database Schema & Tables Management Tab -->
+          <div class="tab-pane fade" id="tab-database" role="tabpanel" aria-labelledby="tab-database-btn">
+            <article class="card card--fit">
+              <div class="card-head card-head--wrap">
+                <div>
+                  <h3 class="card-title">Supabase Database Tables Architecture</h3>
+                  <p class="card-subtitle">Relational tables structure, Row Level Security (RLS), and schema automation</p>
+                </div>
+                <div class="database-status-badge" id="dbStatusBadge">
+                  <span class="status-tag status-tag--info" id="dbStatusTag">
+                    <span class="status-tag__dot" aria-hidden="true"></span>
+                    <span class="status-tag__text" id="dbStatusText">Checking database...</span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- Database actions bar -->
+              <div class="p-3 bg-light border rounded mb-3 d-flex flex-wrap align-items-center justify-content-between gap-2" id="dbActionBar">
+                <div>
+                  <strong>Database Table Provisioning:</strong>
+                  <span class="text-muted ms-1" id="dbSyncHelp">Run automatic table creation or copy SQL to Supabase.</span>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                  <button class="btn btn--primary btn--sm" type="button" id="btnExecuteCreateTables">
+                    <i class="fa-solid fa-play" aria-hidden="true"></i><span>Create Tables Now</span>
+                  </button>
+                  <button class="btn btn--secondary btn--sm" type="button" id="btnCopySqlSchema">
+                    <i class="fa-regular fa-copy" aria-hidden="true"></i><span>Copy SQL DDL</span>
+                  </button>
+                  <a class="btn btn--ghost btn--sm" href="/api/schema.sql" target="_blank" rel="noopener">
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><span>View schema.sql</span>
+                  </a>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table class="data-table" id="databaseCatalogTable">
+                  <caption class="sr-only">Database schema catalog for Supabase</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Table Name</th>
+                      <th scope="col">Entity Type</th>
+                      <th scope="col">Key Columns &amp; Schema</th>
+                      <th scope="col">Purpose</th>
+                      <th scope="col">Row Level Security</th>
+                      <th scope="col">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="databaseCatalogTableBody"></tbody>
+                </table>
+              </div>
+
+              <!-- SQL Schema Collapsible Preview -->
+              <div class="mt-3">
+                <button class="btn btn--ghost btn--sm text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#sqlPreviewCollapse" aria-expanded="false" aria-controls="sqlPreviewCollapse">
+                  <i class="fa-solid fa-code" aria-hidden="true"></i><span>Show Complete SQL Schema</span>
+                </button>
+                <div class="collapse mt-2" id="sqlPreviewCollapse">
+                  <pre class="p-3 bg-dark text-light rounded font-monospace small" style="max-height: 280px; overflow: auto;" id="sqlPreviewCode">Loading schema...</pre>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
       </div>
     </section>
 
